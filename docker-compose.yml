@@ -1,17 +1,30 @@
-version: "3"
+version: "3.8"
 services:
   postgres:
     image: "postgres:latest"
+    environment:
+      - POSTGRES_PASSWORD=postgres_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: "redis:latest"
-  nginx:
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: always
-    build:
-      dockerfile: Dockerfile.dev
-      context: ./nginx
-    ports:
-      - "3050:80"
-  server:
     build:
       dockerfile: Dockerfile.dev
       context: ./server
@@ -26,6 +39,7 @@ services:
       - PGDATABASE=postgres
       - PGPASSWORD=postgres_password
       - PGPORT=5432
+
   client:
     build:
       dockerfile: Dockerfile.dev
@@ -33,10 +47,31 @@ services:
     volumes:
       - /app/node_modules
       - ./client:/app
+
   worker:
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
     build:
       dockerfile: Dockerfile.dev
       context: ./worker
     volumes:
       - /app/node_modules
       - ./worker:/app
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  nginx:
+    depends_on:
+      api:
+        condition: service_started
+      client:
+        condition: service_started
+    restart: always
+    build:
+      dockerfile: Dockerfile.dev
+      context: ./nginx
+    ports:
+      - "3050:80"

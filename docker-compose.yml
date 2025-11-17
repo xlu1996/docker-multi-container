@@ -1,30 +1,37 @@
 version: "3.8"
 services:
   postgres:
-    image: "postgres:latest"
+    image: "postgres:16"
     environment:
       - POSTGRES_PASSWORD=postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
-    image: "redis:latest"
+    image: "redis:6-alpine"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
 
-  api:
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+  nginx:
     restart: always
+    build:
+      dockerfile: Dockerfile.dev
+      context: ./nginx
+    ports:
+      - "3050:80"
+    depends_on:
+      - api
+      - client
+
+  api:
     build:
       dockerfile: Dockerfile.dev
       context: ./server
@@ -39,6 +46,11 @@ services:
       - PGDATABASE=postgres
       - PGPASSWORD=postgres_password
       - PGPORT=5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   client:
     build:
@@ -49,10 +61,6 @@ services:
       - ./client:/app
 
   worker:
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: always
     build:
       dockerfile: Dockerfile.dev
       context: ./worker
@@ -62,16 +70,9 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-
-  nginx:
     depends_on:
-      api:
-        condition: service_started
-      client:
-        condition: service_started
-    restart: always
-    build:
-      dockerfile: Dockerfile.dev
-      context: ./nginx
-    ports:
-      - "3050:80"
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
